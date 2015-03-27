@@ -264,8 +264,8 @@ def node(ip, force_unix_socket, node_image, ip6=""):
         sys.exit(2)
 
     create_dirs()
-    modprobe("ip6_tables")
-    modprobe("xt_set")
+#    modprobe("ip6_tables")
+#    modprobe("xt_set")
 
     # Set up etcd
     client = DatastoreClient()
