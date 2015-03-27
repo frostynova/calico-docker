@@ -10,3 +10,4 @@ dependencies:
 test:
   override:
     - cd build_calicoctl && ./create_binary.sh
+    - sudo tests/add_container.sh
