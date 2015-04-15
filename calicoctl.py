@@ -518,7 +518,7 @@ def profile_show(detailed):
     profiles = client.get_profile_names()
 
     if detailed:
-        x = PrettyTable(["Name", "Endpoint ID"])
+        x = PrettyTable(["Name", "Endpoint ID"], sortby="Name")
         for name in profiles:
             members = client.get_profile_members(name)
             if members:
@@ -527,7 +527,7 @@ def profile_show(detailed):
             else:
                 x.add_row([name, "No members"])
     else:
-        x = PrettyTable(["Name"])
+        x = PrettyTable(["Name"], sortby="Name")
         for name in profiles:
             x.add_row([name])
 
@@ -777,7 +777,7 @@ def ip_pool_show(version):
     :return: None
     """
     pools = client.get_ip_pools(version)
-    x = PrettyTable(["CIDR"])
+    x = PrettyTable(["CIDR"], sortby="CIDR")
     for pool in pools:
         x.add_row([pool])
     print x
