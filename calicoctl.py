@@ -64,7 +64,7 @@ from node.adapter import netns, docker_restart
 
 hostname = socket.gethostname()
 client = IPAMClient()
-DOCKER_VERSION = "1.16"
+DOCKER_VERSION = "1.15"
 docker_client = docker.Client(version=DOCKER_VERSION,
                               base_url=os.getenv("DOCKER_HOST",
                                                  "unix://var/run/docker.sock"))

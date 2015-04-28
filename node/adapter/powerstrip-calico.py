@@ -66,7 +66,7 @@ class AdapterResource(resource.Resource):
         # Init a Docker client, to save having to do so every time a request
         # comes in.
         self.docker = Client(base_url='unix://host-var-run/docker.sock',
-                             version="1.16")
+                             version="1.15")
 
         # Init an etcd client.
         self.datastore = IPAMClient()
