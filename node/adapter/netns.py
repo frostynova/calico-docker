@@ -84,7 +84,7 @@ def add_ip_to_interface(container_pid, ip, interface_name):
     :param interface_name: The interface to add the address to.
     :return: None. raises CalledProcessError on error.
     """
-    with Namespace(container_pid, 'net', proc="/host_proc"):
+    with Namespace(container_pid, 'net', proc="/proc_host"):
         check_call("ip -%(version)s addr add "
                    "%(addr)s/%(len)s dev %(device)s" %
                    {"version": ip.version,
@@ -102,7 +102,7 @@ def remove_ip_from_interface(container_pid, ip, interface_name):
     :param interface_name: The interface to remove the address from.
     :return: None. raises CalledProcessError on error.
     """
-    with Namespace(container_pid, 'net', proc="/host_proc"):
+    with Namespace(container_pid, 'net', proc="/proc_host"):
         check_call("ip -%(version)s addr del "
                    "%(addr)s/%(len)s dev %(device)s" %
                    {"version": ip.version,
@@ -141,23 +141,23 @@ def set_up_endpoint(ip, cpid, next_hop_ips,
     iface = IF_PREFIX + ep_id[:11]
     iface_tmp = "tmp" + ep_id[:11]
 
-    # # Provision the networking
-    # check_call("mkdir -p /var/run/netns", shell=True)
-    # check_call("ln -s /%s/%s/ns/net /var/run/netns/%s" % (proc_alias,
-    #                                                       cpid,
-    #                                                       cpid),
-    #            shell=True)
-    #
-    # # If running in a container, set up a link to the root netns.
-    # if in_container:
-    #     try:
-    #         check_call("ln -s /%s/%s/ns/net /var/run/netns/%s" % (proc_alias,
-    #                                                               ROOT_NETNS,
-    #                                                               ROOT_NETNS),
-    #                    shell=True)
-    #     except CalledProcessError:
-    #         pass  # Only need to do this once.
-    # _log.debug(check_output("ls -l /var/run/netns", shell=True))
+    # Provision the networking
+    check_call("mkdir -p /var/run/netns", shell=True)
+    check_call("ln -s /%s/%s/ns/net /var/run/netns/%s" % (proc_alias,
+                                                          cpid,
+                                                          cpid),
+               shell=True)
+
+    # If running in a container, set up a link to the root netns.
+    if in_container:
+        try:
+            check_call("ln -s /%s/%s/ns/net /var/run/netns/%s" % (proc_alias,
+                                                                  ROOT_NETNS,
+                                                                  ROOT_NETNS),
+                       shell=True)
+        except CalledProcessError:
+            pass  # Only need to do this once.
+    _log.debug(check_output("ls -l /var/run/netns", shell=True))
 
     # Create the veth pair and move one end into container:
     check_call("ip link add %s type veth peer name %s" % (iface, iface_tmp),
@@ -167,7 +167,7 @@ def set_up_endpoint(ip, cpid, next_hop_ips,
     _log.debug(check_output("ip link", shell=True))
 
     # Rename within the container to something sensible.
-    with Namespace(cpid, 'net', proc="/host_proc"):
+    with Namespace(cpid, 'net', proc="/proc_host"):
         check_call("ip link set dev %s name %s" % (iface_tmp,veth_name),
                    shell=True)
         check_call("ip link set %s up" % (veth_name), shell=True)
@@ -178,7 +178,7 @@ def set_up_endpoint(ip, cpid, next_hop_ips,
     if in_container:
         # Move the other end of the veth pair into the root namespace
         check_call("ip link set %s netns %s" % (iface, ROOT_NETNS), shell=True)
-        with Namespace(ROOT_NETNS, 'net', proc="/host_proc"):
+        with Namespace(ROOT_NETNS, 'net', proc="/proc_host"):
             check_call("ip link set %s up" % (iface), shell=True)
 
     # Add an IP address.
@@ -186,7 +186,7 @@ def set_up_endpoint(ip, cpid, next_hop_ips,
 
     # Connected route to next hop & default route.
     next_hop = next_hop_ips[ip.version]
-    with Namespace(cpid, 'net', proc="/host_proc"):
+    with Namespace(cpid, 'net', proc="/proc_host"):
         check_call("ip -%(version)s route replace"
                    " %(next_hop)s dev %(device)s" %
                    {"version": ip.version,
