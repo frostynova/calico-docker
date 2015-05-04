@@ -270,15 +270,15 @@ def node(ip, node_image, ip6=""):
     # modprobe and sysctl require root privileges.
     enforce_root()
 
-    if not module_loaded("ip6_tables"):
-        print >> sys.stderr, "module ip6_tables isn't loaded. Load with " \
-                             "`modprobe ip6_tables`"
-        sys.exit(2)
-
-    if not module_loaded("xt_set"):
-        print >> sys.stderr, "module xt_set isn't loaded. Load with " \
-                             "`modprobe xt_set`"
-        sys.exit(2)
+    # if not module_loaded("ip6_tables"):
+    #     print >> sys.stderr, "module ip6_tables isn't loaded. Load with " \
+    #                          "`modprobe ip6_tables`"
+    #     sys.exit(2)
+    #
+    # if not module_loaded("xt_set"):
+    #     print >> sys.stderr, "module xt_set isn't loaded. Load with " \
+    #                          "`modprobe xt_set`"
+    #     sys.exit(2)
 
     # Set up etcd
     ipv4_pools = client.get_ip_pools("v4")
