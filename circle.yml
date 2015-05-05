@@ -10,5 +10,5 @@ dependencies:
 test:
   override:
     - pushd build_calicoctl && ./create_binary.sh && popd 
-    - sudo build_node.sh 
+    - sudo ./build_node.sh 
     - sudo tests/fv/mainline.sh 
