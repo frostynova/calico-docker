@@ -12,10 +12,13 @@ pushd ./build_calicoctl
 popd
 
 # Run the FVs
+sudo ./tests/fv/no_powerstrip.sh
 sudo ./tests/fv/arg_parsing.sh
 sudo ./tests/fv/mainline.sh
 sudo ./tests/fv/add_container.sh
 sudo ./tests/fv/unix_socket.sh
 sudo ./tests/fv/add_ip.sh
+sudo ./tests/fv/profile_commands.sh
+sudo ./tests/fv/diags.sh
 
 echo "All tests have passed."
