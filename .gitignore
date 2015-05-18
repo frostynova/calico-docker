@@ -7,5 +7,3 @@ calicoctl
 calicoctl.spec
 calicoctl.py.sh
 *~
-.coverage
-cover/
