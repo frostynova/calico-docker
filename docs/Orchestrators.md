@@ -31,7 +31,7 @@ Get the calico binary onto each node. It's usually safe to just grab the latest 
 
 Note that projectcalico.org is not an HA repository, so using this download URL is not recommended for any automated production installation process.  Alternatively, you can download a specific [release](https://github.com/Metaswitch/calico-docker/releases/) from github.  e.g.
 
-	wget https://github.com/Metaswitch/calico-docker/releases/download/v0.4.3/calicoctl
+	wget https://github.com/Metaswitch/calico-docker/releases/download/v0.4.4/calicoctl
 	chmod +x calicoctl
 
 Launch the Calico Node service on each Docker Host you want to use with Calico.
@@ -67,7 +67,7 @@ Please note that in this set up, Calico's ACLs will only be asserted against the
 ## Collecting diags
 To collect (from the current machine only) and upload the diags, run the following command
 
-	sudo ./calicoctl diags
+	sudo ./calicoctl diags --upload
 
 It prints a local file name and a URL where the diags can be downloaded from.
 

@@ -16,12 +16,13 @@ from functools import partial
 
 from test_base import TestBase
 from docker_host import DockerHost
+from utils import retry_until_success
 
 
-class MultiHostMainline(TestBase):
-    def run_multi_host(self, default_as=None, per_node_as=None):
+class Ipv6MultiHostMainline(TestBase):
+    def run_ipv6_multi_host(self, default_as=None, per_node_as=None):
         """
-        Run a mainline multi-host test.
+        Run a mainline multi-host test with IPv6.
 
         Almost identical in function to the vagrant coreOS demo.
         """
@@ -31,18 +32,19 @@ class MultiHostMainline(TestBase):
         if default_as:
             host1.calicoctl("default-node-as 12345")
 
-        ip1 = "192.168.1.1"
-        ip2 = "192.168.1.2"
-        ip3 = "192.168.1.3"
-        ip4 = "192.168.1.4"
-        ip5 = "192.168.1.5"
+        ip1 = "fd80:24e2:f998:72d6::1:1"
+        ip2 = "fd80:24e2:f998:72d6::1:2"
+        ip3 = "fd80:24e2:f998:72d6::1:3"
+        ip4 = "fd80:24e2:f998:72d6::1:4"
+        ip5 = "fd80:24e2:f998:72d6::1:5"
 
-        workload1 = host1.create_workload("workload1", ip1)
-        workload2 = host1.create_workload("workload2", ip2)
-        workload3 = host1.create_workload("workload3", ip3)
+        # We use this image here because busybox doesn't have ping6.
+        workload1 = host1.create_workload("workload1", ip1, image="phusion/baseimage:0.9.16")
+        workload2 = host1.create_workload("workload2", ip2, image="phusion/baseimage:0.9.16")
+        workload3 = host1.create_workload("workload3", ip3, image="phusion/baseimage:0.9.16")
 
-        workload4 = host2.create_workload("workload4", ip4)
-        workload5 = host2.create_workload("workload5", ip5)
+        workload4 = host2.create_workload("workload4", ip4, image="phusion/baseimage:0.9.16")
+        workload5 = host2.create_workload("workload5", ip5, image="phusion/baseimage:0.9.16")
 
         host1.calicoctl("profile add PROF_1_3_5")
         host1.calicoctl("profile add PROF_2")
@@ -64,14 +66,14 @@ class MultiHostMainline(TestBase):
         self.assert_connectivity(pass_list=[workload4],
                                  fail_list=[workload1, workload2, workload3, workload5])
 
-    def test_multi_host(self):
-        self.run_multi_host()
+    def test_ipv6_multi_host(self):
+        self.run_ipv6_multi_host()
 
-    def test_multi_host_default_as(self):
-        self.run_multi_host(default_as=64512)
+    def test_ipv6_multi_host_default_as(self):
+        self.run_ipv6_multi_host(default_as=64512)
 
-    def test_multi_host_per_node_as(self):
-        self.run_multi_host(per_node_as=64513)
+    def test_ipv6_multi_host_per_node_as(self):
+        self.run_ipv6_multi_host(per_node_as=64513)
 
-    def test_multi_host_default_and_per_node_as(self):
-        self.run_multi_host(default_as=64514, per_node_as=64515)
+    def test_ipv6_multi_host_default_and_per_node_as(self):
+        self.run_ipv6_multi_host(default_as=64514, per_node_as=64515)

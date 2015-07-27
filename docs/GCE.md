@@ -1,85 +1,170 @@
 # Running calico-docker on GCE
-Calico runs on the Google Compute Engine (GCE), but there are a few tweaks required to the main Getting Started instructions.
-The GCE fabric itself provides L3 routing for endpoint addresses between hosts and so does not require the Calico routing function in order to provide endpoint connectivity. However, the full Calico routing and security model can be run on GCE, allowing the full power of Calico's security model on GCE (and allowing GCE to be used for testing)
+Calico is designed to provide high performance massively scalable virtual networking for private data centers. But you can also run Calico within a public cloud such as Google Compute Engine (GCE). The following instructions show how to network containers using Calico routing and the Calico security model on GCE.
 
 ## Getting started
-These instructions assume a total of three GCE hosts running CoreOS. One to run an etcd "cluster", and then two compute nodes.
-Documentation on running CoreOS on GCE is [here](https://coreos.com/docs/running-coreos/cloud-providers/google-compute-engine/)
+These instructions describe how to set up two CoreOS hosts on GCE.  For more general background, see [the CoreOS on GCE documentation](https://coreos.com/docs/running-coreos/cloud-providers/google-compute-engine/).
 
-Download and install GCE and login to your account. Full documentation on how to install gcloud are given [here](https://cloud.google.com/compute/docs/gcloud-compute/).
+Download and install GCE, then restart your terminal: 
 ```
 curl https://sdk.cloud.google.com | bash
+```
+For more information, see Google's [gcloud install instructions](https://cloud.google.com/compute/docs/gcloud-compute/).
+
+Log into your account:
+```
 gcloud auth login
 ```
 
-Also, create a project through the GCE console and set that as the default for gcloud.
+In the GCE web console, create a project and enable the Compute Engine API.  
+Set the project as the default for gcloud:
 ```
-gcloud config set project PROJECT
+gcloud config set project PROJECT_ID
 ```
-
 And set a default zone
 ```
 gcloud config set compute/zone us-central1-a
 ```
+## Setting up GCE networking
+GCE blocks traffic between hosts by default; run the following command to allow Calico traffic to flow between containers on different hosts:
+```
+gcloud compute firewall-rules create calico-ipip --allow 4 --network "default" --source-ranges "10.240.0.0/16"
+```
+You can verify the rule with this command:
+```
+gcloud compute firewall-rules list
+```
 
 ## Spinning up the VMs
-You must make sure that the "IP forwarding" flag is set when you first configure the compute nodes (under advanced options in the web developer console, or by specifying the `--can-ip-forward` flag when creating the hosts from the command line).
+etcd needs to be running on the Calico hosts.  The easiest way to bootstrap etcd is with a discovery URL.  We'll use a cluster size of 1 for this demo.  For an actual deployment, choose an etcd cluster size that is equal to or less than the number of Calico nodes (an odd number in the range 3-9 works well).  For more details on etcd clusters, see the [CoreOS Cluster Discovery Documentation](https://coreos.com/docs/cluster-management/setup/cluster-discovery/).
+Use `curl` to get a fresh discovery URL:
+```
+curl https://discovery.etcd.io/new?size=1
+```
+You need to grab a fresh URL each time you bootstrap a cluster.
 
-Run the master with
+Create a file `cloud-config.yaml` with the following contents; **replace `<discovery URL>` with the URL retrieved above**:
 ```
-gcloud compute instances create master --image https://www.googleapis.com/compute/v1/projects/coreos-cloud/global/images/coreos-alpha-618-0-0-v20150312 --machine-type g1-small --metadata-from-file user-data=cloud-config-master.yaml --can-ip-forward
-```
-
-And the compute nodes with
-```
-gcloud compute instances create core1 core2 --image https://www.googleapis.com/compute/v1/projects/coreos-cloud/global/images/coreos-alpha-618-0-0-v20150312 --machine-type g1-small --metadata-from-file user-data=cloud-config.yaml --can-ip-forward
-```
-
-You can get the cloud-config*.yaml files from the tests/scale directory of this repo.
-
-## Setting up GCE networking
-In order for routing to work correctly between hosts, you must notify GCE of the network address configuration you are using for your endpoints. For this demo we do this by manually running the `gcloud` utility; a production instance would almost certainly use the RESTful API. In these instructions, we'll assume that you plan on hosting addresses in the 192.168.1.0/24 range on core1, and addresses in the 192.168.2.0/24 range on core2. The instructions for doing this are as follows.
-
-
-Install each route in turn.
-```
-gcloud compute routes create ip-192-168-1-0 --next-hop-instance core1 --next-hop-instance-zone us-central1-a --destination-range 192.168.1.0/24
-gcloud compute routes create ip-192-168-2-0 --next-hop-instance core2 --next-hop-instance-zone us-central1-a --destination-range 192.168.2.0/24
-```
-Note that this assumes that your hosts are called `core1` and `core2` in zone `us-central1-a`; change as appropriate for your configuration.
-
-Now verify that you can view your instances and lists.
-```
-gcloud compute instances list
-gcloud compute routes list
-```
-
-When you come to create endpoints (i.e. test containers) they will be able to ping one another but not do TCP or UDP because the GCE firewalls do not permit it. To enable this, add a firewall rule to allow all traffic to/from 192.168.0.0/16
-```
-gcloud compute firewall-rules create "any" --allow tcp:1-65535 --network "default" --source-ranges "192.168.0.0/16"
-```
-
-BIRD will not accept routes where the default gateway is not in the same subnet as the local IP on the interface, and for GCE the local IP is always a /32 (so no routes are in the same subnet). To resolve this, you must add a route that convinces BIRD that the default gateway really is valid by running a command such as that given below (where 10.240.10.1 is the IP of the server, and 10.240.0.1 is the gateway address; obviously change those for your deployment!). Note that you must do this on *both* hosts.
+#cloud-config
+coreos:
+  update:
+    reboot-strategy: off
+  etcd2:
+    name: $private_ipv4
+    discovery: <discovery URL>
+    advertise-client-urls: http://$private_ipv4:2379
+    initial-advertise-peer-urls: http://$private_ipv4:2380
+    listen-client-urls: http://0.0.0.0:2379,http://0.0.0.0:4001
+    listen-peer-urls: http://$private_ipv4:2380,http://$private_ipv4:7001
+  units:
+    - name: etcd2.service
+      command: start
 
 ```
-ip addr add 10.240.10.1 peer 10.240.0.1 dev ens4v1
+Note: we disable CoreOS updates for this demo to avoid interrupting the instructions.
+
+Then create the cluster with the following command, where calico-1 and calico-2 are the names for the two nodes to create:
+```
+gcloud compute instances create \
+  calico-1 calico-2 \
+  --image-project coreos-cloud \
+  --image coreos-alpha-709-0-0-v20150611 \
+  --machine-type n1-standard-1 \
+  --metadata-from-file user-data=cloud-config.yaml
 ```
 
-There's more on this situation here, in case you want to understand this further [http://marc.info/?l=bird-users&m=139809577125938&w=2](http://marc.info/?l=bird-users&m=139809577125938&w=2)
-
-So that BIRD is not just adding routes that have no effect (since they match the default route), we want to ban all traffic to the network that your endpoints are on. This unreachable route will be overridden when endpoints are created; on each host, the Calico Felix agent will add the route locally which will then be picked up and distributed by the BIRD clients.
-
+## Installing calicoctl on each node
+SSH into each node using gcloud (names are calico-1 and calico-2):
 ```
-ip route add unreachable 192.168.0.0/16
+gcloud compute ssh <instance name>
 ```
 
-## Starting calico and running containers
-Now, you can just follow the standard getting started instructions for downloading calico and creating workloads. See https://github.com/Metaswitch/calico-docker/blob/master/docs/GettingStarted.md#installing-calico for more details.
-
-
-## (Optional) Enabling traffic from containers to the internet
- The test endpoints will be unable to access the internet - that is because the internal range we are using is not routable. Hence to get external connectivity, SNAT is called for using the following `iptables` rule (on both hosts).
-
+On each node, run these commands to set up Calico:
 ```
-iptables -t nat -A POSTROUTING -s 192.168.0.0/16 ! -d 192.168.0.0/16 -j MASQUERADE
+# Download calicoctl and make it executable:
+wget https://github.com/Metaswitch/calico-docker/releases/download/v0.4.7/calicoctl
+chmod +x ./calicoctl
+
+# Grab our private IP from the metadata service:
+export metadata_url="http://metadata.google.internal/computeMetadata/v1/"
+export private_ip=$(curl "$metadata_url/instance/network-interfaces/0/ip" -H "Metadata-Flavor: Google")
+
+# Start the calico node service:
+sudo ./calicoctl node --ip=$private_ip
+```
+Then, on any one of the hosts, create the IP pool Calico will use for your containers:
+```
+./calicoctl pool add 192.168.0.0/16 --ipip --nat-outgoing
+```
+
+## Create a couple of containers and check connectivity
+On the first host, run:
+```
+export DOCKER_HOST=localhost:2377
+docker run -e CALICO_IP=192.168.1.1 -e CALICO_PROFILE=test --name container-1 -tid busybox
+```
+On the second host, run:
+```
+export DOCKER_HOST=localhost:2377
+docker run -e CALICO_IP=192.168.1.2 -e CALICO_PROFILE=test --name container-2 -tid busybox
+```
+Then, run the following on the second host to see the that two containers are able to ping each other:
+```
+docker exec container-2 ping -c 4 192.168.1.1
+```
+## Next steps
+Now, you may wish to follow the [getting started instructions for creating workloads](https://github.com/Metaswitch/calico-docker/blob/master/docs/GettingStarted.md#creating-networked-endpoints).
+
+## (Optional) Enabling traffic from the internet to containers
+Services running on a Calico host's containers in GCE can be exposed to the internet.  Since the containers have IP addresses in the private IP range, traffic to the container must be routed using a NAT and an appropriate Calico security profile.
+
+Let's create a new security profile and look at the default rules.
+```
+./calicoctl profile add WEB
+./calicoctl profile WEB rule show
+```
+You should see the following output.
+```
+Inbound rules:
+   1 allow from tag WEB 
+Outbound rules:
+   1 allow
+```
+
+Let's modify this profile to make it more appropriate for a public webserver by allowing TCP traffic on ports 80 and 443:
+```
+./calicoctl profile WEB rule add inbound allow tcp to ports 80,443
+```
+
+Now, we can list the rules again and see the changes:
+```
+./calicoctl profile WEB rule show
+```
+should print
+```
+Inbound rules:
+   1 allow from tag WEB 
+   2 allow tcp to ports 80,443
+Outbound rules:
+   1 allow
+```
+
+After creating the WEB profile, run the following command on one of your GCE Calico hosts to create a Calico container under this profile, running a basic NGINX http server:
+```
+docker run -e CALICO_IP=192.168.2.1 -e CALICO_PROFILE=WEB --name mynginx1 -P -d nginx
+```
+
+On the same host, create a NAT that forwards port 80 traffic to the new container.
+```
+sudo iptables -A PREROUTING -t nat -i ens4v1 -p tcp --dport 80 -j DNAT  --to 192.168.2.1:80
+```
+
+Lastly, the GCE's firewall rules must be updated for any ports you want to expose. Run this gcloud command to allow incoming traffic to port 80:
+```
+gcloud compute firewall-rules create allow-http \
+  --description "Incoming http allowed." --allow tcp:80
+```
+
+You should now be able to access the NGINX http server using the public ip address of your GCE host on port 80 by visiting http://<host public ip>:80 or running:
+```
+curl http://<host public ip>:80
 ```

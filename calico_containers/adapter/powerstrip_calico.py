@@ -20,6 +20,7 @@ import logging
 import logging.handlers
 import sys
 import socket
+import os
 
 from docker import Client
 from netaddr import IPAddress, AddrFormatError
@@ -30,6 +31,7 @@ _log = logging.getLogger(__name__)
 
 ENV_IP = "CALICO_IP"
 ENV_PROFILE = "CALICO_PROFILE"
+ORCHESTRATOR_ID = "docker"
 
 hostname = socket.gethostname()
 
@@ -63,8 +65,23 @@ class AdapterResource(resource.Resource):
         resource.Resource.__init__(self)
 
         # Init a Docker client, to save having to do so every time a request
-        # comes in.
-        self.docker = Client(base_url='unix://host-var-run/docker.sock',
+        # comes in.  We need to get the correct Docker socket to use.  If
+        # POWERSTRIP_UNIX_SOCKET is YES, that means Powerstrip has bound to
+        # the default docker.socket and we should bind to the "real" Docker
+        # socket to bypass Powerstrip and avoid request loops.
+        docker_host = os.environ.get('DOCKER_HOST')
+        enable_unix_socket = os.environ.get('POWERSTRIP_UNIX_SOCKET', "")
+
+        if docker_host is None:
+            # Default to assuming we've got a Docker socket bind-mounted into a
+            # container we're running in.
+            if "YES" in enable_unix_socket:
+                docker_host = "unix:///host-var-run/docker.real.sock"
+            else:
+                docker_host = "unix:///host-var-run/docker.sock"
+        if "://" not in docker_host:
+            docker_host = "tcp://" + docker_host
+        self.docker = Client(base_url=docker_host,
                              version="1.16")
 
         # Init an etcd client.
@@ -171,11 +188,11 @@ class AdapterResource(resource.Resource):
         _log.debug('Container PID: %s', pid)
 
         # Grab the list of endpoints, if they exist.
-        try:
-            eps = self.datastore.get_endpoints(hostname, cid)
-            self._reinstall_endpoints(cid, pid, eps)
-        except KeyError:
+        eps = self.datastore.get_endpoints(hostname=hostname, workload_id=cid)
+        if len(eps) == 0:
             self._install_endpoint(client_request, cont, cid, pid)
+        else:
+            self._reinstall_endpoints(cid, pid, eps)
         return
 
     def _install_endpoint(self, client_request, cont, cid, pid):
@@ -233,6 +250,8 @@ class AdapterResource(resource.Resource):
 
         next_hop_ips = self.datastore.get_default_next_hops(hostname)
         endpoint = netns.set_up_endpoint(ip=ip,
+                                         hostname=hostname,
+                                         orchestrator_id=ORCHESTRATOR_ID,
                                          cpid=pid,
                                          next_hop_ips=next_hop_ips)
         if profile is not None:
@@ -240,7 +259,7 @@ class AdapterResource(resource.Resource):
                 _log.info("Autocreating profile %s", profile)
                 self.datastore.create_profile(profile)
             _log.info("Adding container %s to profile %s", cid, profile)
-            endpoint.profile_id = profile
+            endpoint.profile_ids = [profile]
             _log.info("Finished adding container %s to profile %s",
                       cid, profile)
 
@@ -263,8 +282,7 @@ class AdapterResource(resource.Resource):
         for old_endpoint in eps:
             new_endpoint = netns.reinstate_endpoint(pid, old_endpoint,
                                                     next_hop_ips)
-            self.datastore.update_endpoint(hostname, cid,
-                                           old_endpoint, new_endpoint)
+            self.datastore.update_endpoint(new_endpoint)
 
         _log.info("Finished network for container %s", cid)
         return
@@ -288,8 +306,8 @@ class AdapterResource(resource.Resource):
         try:
             # Get a single endpoint ID from the container, and use this to
             # get the Endpoint.
-            ep_id = self.datastore.get_ep_id_from_cont(hostname, cid)
-            ep = self.datastore.get_endpoint(hostname, cid, ep_id)
+            ep_id = self.datastore.get_endpoint_id_from_cont(hostname, cid)
+            ep = self.datastore.get_endpoint(endpoint_id=ep_id)
         except KeyError:
             _log.info('No workload found for container %s, '
                       'returning request unmodified.', cid)
